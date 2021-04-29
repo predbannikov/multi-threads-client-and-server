@@ -3,8 +3,7 @@
 #include "memory.h"
 #include "string.h"
 #include <algorithm>
-
-
+#include "test.h"
 
 
 long long getfreememory()
@@ -117,7 +116,7 @@ public:
 
 class Client {
 
-    long countReq = 0;
+    size_t countReq = 0;
 public:
     Client() {
     }
@@ -125,7 +124,7 @@ public:
     void workClient() {
         int tmpCounter = 0;
         while(true) {
-            if(sysinfo.createSession()) {
+            if(sysinfo.createSession(countReq)) {
                 std::string str;
 
                 countReq++;
@@ -229,6 +228,9 @@ static enum STATE{STATE_INIT_API, STATE_INIT_MEMORY,
 int main()
 {
 
+    test();
+    return 0;
+    std::cout << std::endl;
     Client client;
     std::thread thclient;
 
@@ -267,21 +269,21 @@ int main()
 
 
 
-    int memfree = getfreememory();
+//    int memfree = getfreememory();
 
 
-    std::cout << memfree << std::endl;
-    memfree *= 0.9;
-    std::cout << memfree << std::endl;
-    std::cout << "part:" << memfree%1000 << std::endl;
-    char *test = (char*)malloc(memfree);
-    memset(test, 0, memfree);
+//    std::cout << memfree << std::endl;
+//    memfree *= 0.9;
+//    std::cout << memfree << std::endl;
+//    std::cout << "part:" << memfree%1000 << std::endl;
+//    char *test = (char*)malloc(memfree);
+//    memset(test, 0, memfree);
 
 
-    std::cout << memfree << " " << test << std::endl;
-    memfree = getfreememory();
-    std::cout << memfree << std::endl;
-    free(test);
+//    std::cout << memfree << " " << test << std::endl;
+//    memfree = getfreememory();
+//    std::cout << memfree << std::endl;
+//    free(test);
 
     std::cout << getTimeStamp() << std::endl;
     Server srv;

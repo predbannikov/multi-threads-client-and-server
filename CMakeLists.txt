@@ -7,6 +7,8 @@ add_executable(${PROJECT_NAME}
     "sha256.h"
     "memory.h"
     "sha256.cpp"
+    "test.h"
+    "test.cpp"
     )
 
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
