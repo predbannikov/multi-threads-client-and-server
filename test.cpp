@@ -7,34 +7,47 @@
 
 
 TAbstract::~TAbstract() {
-    if(m_sName == "server") {
-        std::cout << std::endl << "Data" << std::hex << std::endl;
-        for(auto item: *data) {
-                for(auto i: item)
-                    std::cout << (0xFF&i) << " ";
-                std::cout << std::endl;
-        }
-    }
+//    std::cout << "end thread " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
+
+//    if(m_sName == "server") {
+//        std::cout << std::endl << "Data" << std::hex << std::endl;
+//        for(auto item: *messages->data) {
+//                for(auto i: item)
+//                    std::cout << (0xFF&i) << " ";
+//                std::cout << std::endl;
+//        }
+//    }
 
 }
 
-int TAbstract::openSession(size_t anNumMessage)
+int TServer::openSession(size_t anNumMessage)
 {
+    try {
 
-
-    std::cout << std::endl;
-    std::cout << "Server " << std::endl;
+//    std::cout << std::endl;
+//    std::cout << "Server " << std::endl;
 //    for(auto i: data->at(anNumMessage))
 //        std::cout << (0xFF&i) << " ";
 //    std::cout << std::endl;
-    int64_t intPart = *reinterpret_cast<int64_t*>(&data->at(anNumMessage).at(0));
-    int16_t codeMessage = static_cast<int16_t>(intPart);
-    //std::cout << "code: " << codeMessage << std::endl;
-    int16_t funcNum = static_cast<int16_t>(intPart >> 16);
-    intPart >>= 16;
+//        std::cout << "openSession: " << std::hex << std::this_thread::get_id() << std::endl;
+
+        char data[SIZE_BLOCK_MESSAGE];
+        char *pData = &data[0];
+//        std::shared_ptr<char> sptr(data);
+        if(!messages->readMessage(pData)) {
+//            std::cout << "not read message" << std::endl;
+            return 0;
+        }
+//    std::lock_guard<std::mutex> lk(messages->mtx);
+    int64_t intPart = *reinterpret_cast<int64_t*>(pData);
+//    int64_t intPart = *reinterpret_cast<int64_t*>(&messages->data->at(anNumMessage).at(0));
+    int16_t code = static_cast<int16_t>(intPart);
+    int16_t reqNum = static_cast<int16_t>(intPart >>= 16);
+    int16_t funcNum = static_cast<int16_t>(intPart >>= 16);
+
+//    std::cout << "code: " << code << std::endl;
+
     int16_t countArgs = static_cast<int16_t>(intPart);
-    void (TAbstract::*pFunc)(int16_t&, char**);
-    pFunc = api[funcNum];
 
     //std::cout << "SIZE_PARAMETERS_INT " << SIZE_PARAMETERS_INT << std::endl;
 //    char **ptr = reinterpret_cast<char**>(*reinterpret_cast<char**>(&data->at(anNumMessage).at(SIZE_PARAMETERS_INT)));
@@ -45,21 +58,43 @@ int TAbstract::openSession(size_t anNumMessage)
 //    long dmark = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mark;
 //    std::cout << "1 dmark = " << std::dec << dmark << std::endl;
 
+//    char& p = messages->data->at(anNumMessage).at(SIZE_PARAMETERS_INT);
 
-    char& p = data->at(anNumMessage).at(SIZE_PARAMETERS_INT);
+//    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+    void (TServer::*pFunc)(int16_t&, char**);
+    pFunc = api[funcNum];   //TODO узнать почему в массиве функций изменяются значения
     char** ptr = nullptr;
-    memcpy(&ptr, &p, sizeof(char*));
-    //std::cout << ptr << std::endl;
+    memcpy(&ptr, pData + SIZE_PARAMETERS_INT, sizeof(char*));
+//    std::cout << "." << std::endl;
     (this->*pFunc)(countArgs, ptr);
+
+    memcpy(pData + SIZE_PARAMETERS_INT, &ptr, sizeof(char**));
+
+    messages->changeData(pData, reqNum, CODE_MESSAGE_READY);
+
+    } catch(const std::runtime_error& re) {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    } catch(const std::exception& ex) {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    } catch(...) {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+    
+
     return 0;
 }
 
-void TAbstract::call(int16_t &nArgs, char **ppchArgs){
+void TServer::call(int16_t &nArgs, char **ppchArgs){
 
     std::string *strtmp = reinterpret_cast<std::string*>(*ppchArgs);
-    std::cout << *strtmp << " " << std::this_thread::get_id() << std::endl;
+    if(*strtmp == "stop server") {
+        cycle = false;
+    }
+//    std::cout << *strtmp << " " << std::hex << std::this_thread::get_id() << std::endl;
     std::string *strResponse = new std::string(sha256(strtmp));
 //    std::cout << *strResponse << std::endl;;
+    strings.push_back(strResponse);
     delete ppchArgs;
     nArgs++;
     ppchArgs = new char*[static_cast<size_t>(nArgs)] {
@@ -74,87 +109,102 @@ int TAbstract::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **app
 {
     //std::cout << "bt" << SIZE_CODE_MESSAGE << " " << SIZE_NUM_FUNC_API << std::endl;
     //std::lock_guard<std::mutex> lock(mtx);
-    std::cout << "createRequest: " << std::hex << std::this_thread::get_id() << std::endl;
+//    std::cout << "createRequest: " << std::hex << std::this_thread::get_id() << std::endl;
+    try {
+        const int16_t numApiFunc = 1;
+        const int16_t codeMessage = CODE_MESSAGE_NEW ;                                            // CODE
+        const int16_t countArgs = aCountArgs;
+        const int16_t numRequest = infoThr->numRequest;
+        int64_t prepFuncArgs = numApiFunc;
+        prepFuncArgs <<= 16;             // Пустое место - номер запроса
+        prepFuncArgs |= countArgs;
+        prepFuncArgs <<= 16;
+        prepFuncArgs |= numRequest;
+        prepFuncArgs <<= SIZE_NUM_FUNC_API * 8;
+        prepFuncArgs |= codeMessage;
+        char data[SIZE_BLOCK_MESSAGE];
+        //char *pData = &data[0];     //new char[SIZE_BLOCK_MESSAGE];
+        memcpy(data, &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
+    //    const size_t indexTopData = getIndexBlockReady();
+        //std::cout << "index block ready = " << std::hex << indexTopData << std::endl;
+//        std::lock_guard<std::mutex> lk(messages->mtx);
+//        memcpy(messages->data->at(infoThr->indxMessage).data(), &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
+    //    char **ppchTmp = new char*[static_cast<size_t>(1)] {
+    //            reinterpret_cast<char*>(new size_t(anNumReq))
+    //    };
+        memcpy(data + SIZE_PARAMETERS_INT, &appchData, sizeof appchData);
+        messages->addMessage(data);
 
-    const int16_t numApiFunc = 1;
-    const int16_t codeMessage = CODE_MESSAGE_NEW ;//MESSAGE_FILLED;
-    const int16_t countArgs = aCountArgs;
-    int64_t prepFuncArgs = 0;
-    prepFuncArgs <<= sizeof (int16_t) * 8;      // Пустое место
-    prepFuncArgs |= countArgs;
-    prepFuncArgs <<= 16;
-    prepFuncArgs |= numApiFunc;
-    prepFuncArgs <<= SIZE_NUM_FUNC_API * 8;
-    prepFuncArgs |= codeMessage;
 
-//    const size_t indexTopData = getIndexBlockReady();
-    //std::cout << "index block ready = " << std::hex << indexTopData << std::endl;
-    memcpy(data->at(infoThr->indxMessage).data(), &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
-//    char **ppchTmp = new char*[static_cast<size_t>(1)] {
-//            reinterpret_cast<char*>(new size_t(anNumReq))
-//    };
-    memcpy(data->at(infoThr->indxMessage).data() + SIZE_PARAMETERS_INT, &appchData, sizeof appchData);
+        std::unique_lock<std::mutex> lk(infoThr->mtx);
+    //    std::vector<char> &ptr = messages->data->at(infoThr->indxMessage);
+        infoThr->condVar.wait(lk, [infoThr, this] (){
+//            int16_t index;
+//            messages->getIndexOfNumReq(infoThr->numRequest, index);
+//            if(index < 0)
+//                return false;
+            bool bl = this->messages->checkRequest(infoThr->numRequest, CODE_MESSAGE_READY);            // CODE
+//            std::cout << "wait code = " << bl << " req = " << infoThr->numRequest << std::endl;
+            return  bl;
 
-//    std::cout << std::endl << "Client" << std::hex << std::endl;
-//    for(auto i: data->at(indexTopData))
-//        std::cout << (0xFF&i) << " ";
-//    std::cout << std::endl;
+        });
+
+    //    infoThr->complate = 1;
+//        int16_t index;
+//        messages->getIndexOfNumReq(numRequest, index);
+        messages->changeData(data, infoThr->numRequest, CODE_MESSAGE_COMPL);                            // CODE
+//        std::cout << "end creat: numReq = " << std::dec << numRequest << std::endl;
+
+
+    }catch(const std::runtime_error& re)
+    {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    }
+    catch(...)
+    {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+
+
 //    std::this_thread::sleep_for(std::chrono::milliseconds(1050));
 //    std::cout << "end creat request befor" << std::endl;
 
-//    std::unique_lock<std::mutex> lk(infoThr->mtx);
-//    std::vector<char> &ptr = data->at(infoThr->indxMessage);
-//    infoThr->condVar.wait(lk, [ptr] (){
-//        return ptr[0] == static_cast<char>(0xEE);
-//    });
 
-//    std::cout << "end creat request" << std::endl;
     return 0;
 }
 
-size_t TAbstract::getIndexBlockReady()       // Поиск блока для клиента
+int TAbstract::createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, char **appchData)
 {
-    for(size_t i = 0; i < data->size(); i++) {
-        if(*reinterpret_cast<int16_t*>(&data->at(i).at(0)) == CODE_MESSAGE_EMPTY) {     // Код свободного блока сообщения
-            return i;
-        }
-    }
-    // Только если в очереди нет свободных блоков
-    std::unique_lock<std::mutex> lk(getMtx);
-    lk.lock();
-    data->push_back(std::vector<char>(SIZE_BLOCK_MESSAGE, 0));
-    lk.unlock();
-//    std::cout << "data = " << data << std::endl;
-    return data->size()-1;
-}
+    const int16_t numApiFunc = 1;
+    const int16_t codeMessage = CODE_MESSAGE_NEW ;                  //MESSAGE_FILLED;
+    const int16_t countArgs = aCountArgs;
+    const int16_t numRequest = infoThr->numRequest;
+    int64_t prepFuncArgs = numApiFunc;
+    prepFuncArgs <<= 16;             // Пустое место - номер запроса
+    prepFuncArgs |= countArgs;
+    prepFuncArgs <<= 16;
+    prepFuncArgs |= numRequest;
+    prepFuncArgs <<= SIZE_NUM_FUNC_API * 8;
+    prepFuncArgs |= codeMessage;
+    char data[SIZE_BLOCK_MESSAGE];
+    memcpy(data, &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
+    memcpy(data + SIZE_PARAMETERS_INT, &appchData, sizeof appchData);
+    messages->addMessage(data);
 
-long TAbstract::getIndexBlockFilled()       // Поиск блока для сервера
-{
-    std::unique_lock<std::mutex> lock(getMtx);
-    for(size_t i = 0; i < data->size(); i++) {
-//        std::cout << "code = " << std::hex << *reinterpret_cast<int16_t*>(&data->at(i).at(0)) << std::endl;
-//        std::cout << " getIndexBlockFilled " << (short)data->at(i)[0] << (short)data->at(i)[1] << std::endl;
-//        std::cout << "i = " << i  << " " << data->size() << " " << data << std::endl;
-//        try {
-//            if(data->at(i).at(0) == 0) {
-//                std::cout << "data = " << data << std::endl;
-//            }
-//        } catch (...) {
-//            std::cout << "stop " << data->size() << std::endl;
-//        }
-//        if(data->at(i)[0] == 0) {
-//            std::cout << "data = " << data << std::endl;
-//        }
-        int16_t tmp = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
-        if(tmp == CODE_MESSAGE_NEW) {
-//            std::cout << "lock_guard i= " << i << " " << std::this_thread::get_id() << std::endl;
-            data->at(i).at(0) = static_cast<char>(0x55);
-//            std::cout << "code = " << std::hex << *reinterpret_cast<int16_t*>(&data->at(i).at(0));
+    std::unique_lock<std::mutex> lk(infoThr->mtx);
+    infoThr->condVar.wait(lk, [infoThr, this] (){
+        bool bl = this->messages->checkRequest(infoThr->numRequest, CODE_MESSAGE_READY);
+        return  bl;
 
-            return static_cast<long>(i);
-        }
-    }
-    return -1;
+    });
+
+    messages->changeData(data, infoThr->numRequest, CODE_MESSAGE_COMPL);
+    std::cout << "end creat stop server: numReq = " << std::dec << numRequest << std::endl;
+    return 0;
 }
 
 
@@ -172,8 +222,17 @@ long TAbstract::getIndexBlockFilled()       // Поиск блока для се
 /************************************************
  *                  Server
  * **********************************************/
-TServer::TServer(std::vector<std::vector<char > > *data_) : TAbstract(data_) {
+TServer::TServer(DataMessages *messages_) : TAbstract(messages_) {
     m_sName = "server";
+    for(size_t i = 0; i < COUNT_FIELD; i++)
+        api[i] = &TServer::call;
+
+    t = std::thread(&TServer::worker, this);
+    if(!t.joinable())
+        throw std::logic_error("No thread");
+
+
+
 }
 
 int TServer::writeMessage() {
@@ -186,33 +245,39 @@ int TServer::readMessage() {
 }
 
 TServer::~TServer() {
-    std::cout << "~Sever()" << std::endl;
+    t.join();
+    std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
+//    threads.clear();
+    std::cout << "~" << m_sName << "()" << std::endl;
+    delete messages;
+
+    for(size_t i = 0; i < strings.size(); i++) {
+        delete strings[i];
+    }
+    strings.clear();
 }
 
 int TServer::worker()
 {
-    long tmp_counter = 0;
+    std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
+//    long tmp_counter = 0;
     //std::shared_ptr<scoped_guard> scope_guard_share;
-    while(true) {
-        const long indexData = getIndexBlockFilled();
-        if(indexData < 0) {
-//            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;
-        }
+    while(cycle) {
+//        const long indexData = tmp_counter; //messages->getIndexBlockFilled();
+//        if(indexData < 0) {
+//            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+//            continue;
+//        }
 
         // Дальше проходим только если в очереди есть есть необработанные блоки
+        if(messages->messagesIsFilled())
+            threads.push_back(std::thread(&TServer::openSession, this, 1));
 
-        new scoped_guard(std::thread(&TServer::openSession, this, indexData));     // TODO решить что то с утечкой памяти
 
+//        std::this_thread::sleep_for(std::chrono::milliseconds(3));
 
-//        if(tmp_counter%10 == 10)
-//            std::cout << this << std::endl;
-//        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        if(tmp_counter >= 10)
-            break;
-        tmp_counter++;
     }
-    std::cout << "\nServer worker end" << std::endl;
+//    std::cout << "\nServer worker end" << std::endl;
     return 0;
 }
 
@@ -220,38 +285,89 @@ int TServer::worker()
 /************************************************
  *                  Client
  * **********************************************/
-TClient::TClient(std::vector<std::vector<char > > *data_) : TAbstract(data_) {
+TClient::TClient(DataMessages *messages_) :  TAbstract(messages_) {
     m_sName = "client";
+    t = std::thread(&TClient::worker, this);
+    if(!t.joinable())
+        throw std::logic_error("No thread");
+
+
 }
 
+#define COUNT_MAX_REQUEST   100
 
 int TClient::worker()
 {
-    size_t tmp_counter = 0;
-    while(true) {
+    std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
 
+    int16_t tmp_counter = 0;
+    std::string *strTmp;
+    char **ppchTmp = nullptr;
+    InfoThread *infoThr;
+    while(cycle) {
+        int16_t code;
+        int16_t req = 0;
+//        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+        if(!messages->getMessageInfo(code, req)) {      // Получаем первый блок сообщения готовый к дальнейшей обработки
+                                                        // NOTE:
+//            continue;
+        }
 
-        std::string *strTmp = new std::string("hello world");
-        char **ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
-                reinterpret_cast<char*>(strTmp)
-        };
+        switch (code) {
+//        case CODE_MESSAGE_NEW:
+//            std::cout << "message new" << std::endl;
+//            break;
+        case CODE_MESSAGE_EMPTY:                        // По умолчанию
+            if(tmp_counter < COUNT_MAX_REQUEST)
+            {
+                strTmp = new std::string("hello world");
+                ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
+                        reinterpret_cast<char*>(strTmp)
+                };
+                infoThr = new InfoThread;
+                infoThr->numRequest = tmp_counter;
+                infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequest, this, infoThr, 1, ppchTmp));       // передаются ссылки
+                queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
+            }
+            //            std::cout << "map insert " << infoThr->numRequest << std::endl;
 
-        //thread_guard thr_req(std::thread(&TClient::createRequest, this, tmp_counter, 1, ppchTmp));  // 1 количество аргументов
-//        std::thread thr(&TClient::createRequest, this, tmp_counter, 1, ppchTmp);
-//        thr.detach();
-        InfoThread *infoThr = new InfoThread;
-        infoThr->indxMessage = getIndexBlockReady();
-        infoThr->scGuard = new scoped_guard(std::thread(&TClient::createRequest, this, infoThr, 1, ppchTmp));
-        queueThreads.insert(std::make_pair(infoThr->indxMessage, infoThr));
-
-        if(tmp_counter%10 == 10)
-            std::cout << this << std::endl;
-//        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        if(tmp_counter >= 10)
             break;
+        case CODE_MESSAGE_READY:
+//            std::cout << "notify_one: req = " << req << std::endl;
+            queueThreads[req]->condVar.notify_one();
+
+            break;
+        case CODE_MESSAGE_COMPL:
+
+            messages->clearMessage(req);
+            queueThreads.erase(req);
+            if(queueThreads.empty() && tmp_counter > COUNT_MAX_REQUEST && queueThreads.empty()) {
+                cycle = false;
+            }
+
+            break;
+        }
+
+
+        if(queueThreads.empty() && tmp_counter == COUNT_MAX_REQUEST) {
+            strTmp = new std::string("stop server");
+            ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
+                    reinterpret_cast<char*>(strTmp)
+            };
+            infoThr = new InfoThread;
+            infoThr->numRequest = tmp_counter;
+            infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequestStopServer, this, infoThr, 1, ppchTmp));       // передаются ссылки
+            queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
+            tmp_counter++;
+//            break;
+        }
+
+        if(tmp_counter >= COUNT_MAX_REQUEST)
+            continue;
         tmp_counter++;
     }
-    std::cout << "\nClient worker end" << std::endl;
+
+//    std::cout << "\nClient worker end" << std::endl;
     return 0;
 }
 
@@ -267,7 +383,18 @@ int TClient::readMessage() {
 }
 
 TClient::~TClient() {
-    std::cout << "~Client()" << std::endl;
+    t.join();
+//    std::for_each(queueThreads.begin(), queueThreads.end(), [](std::pair<const unsigned long, InfoThread*> &pair) {
+//        std::cout << &pair.second->thread << std::endl;
+//         pair.second->thread.join(); //
+////         std::mem_fn(&std::thread::join);
+//    });
+//    std::cout << "delete ~" << m_sName << "() queuetThreads" << std::endl;
+    for(auto info: queueThreads) {
+        delete info.second;
+    }
+    queueThreads.clear();
+    std::cout << "~" << m_sName << "()" << std::endl;
 }
 static int i = 0;
 
@@ -294,25 +421,19 @@ void test3(std::vector<std::vector<char >> &vec2) {
     while(true){
 
         try {
-            //std::cout << "data " << vec2.data() << " " << vec2.size() << std::endl;
-            int16_t tmp = *reinterpret_cast<int16_t*>(&vec2.at(0).at(0));
 
         }catch(const std::runtime_error& re)
-            {
-                // speciffic handling for runtime_error
-                std::cerr << "Runtime error: " << re.what() << std::endl;
-            }
-            catch(const std::exception& ex)
-            {
-                // speciffic handling for all exceptions extending std::exception, except
-                // std::runtime_error which is handled explicitly
-                std::cerr << "Error occurred: " << ex.what() << std::endl;
-            }
-            catch(...)
-            {
-                // catch any other errors (that we have no information about)
-                std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
-            }
+        {
+            std::cerr << "Runtime error: " << re.what() << std::endl;
+        }
+        catch(const std::exception& ex)
+        {
+            std::cerr << "Error occurred: " << ex.what() << std::endl;
+        }
+        catch(...)
+        {
+            std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+        }
         long mark2 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         long dmark = mark2 - mark;
         if(dmark > 5)
@@ -324,30 +445,17 @@ void test3(std::vector<std::vector<char >> &vec2) {
 void test() {
 
 
-    std::vector<std::vector<char >> *vec = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));
+    //std::vector<std::vector<char >> *vec = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));
+    DataMessages *messages = new DataMessages;
 
-//    stack[0] = 1;
-//    std::cout << stack[0] << std::endl;
-//    std::cout << std::endl;
+//    std::thread thr = std::thread(&TServer::worker, server);
+    TServer server(messages);
+    TClient client(messages);
 
-    TServer server(vec);
-    TClient client(vec);
-
-    long hardware_threads = std::thread::hardware_concurrency();
-    std::cout << hardware_threads << std::endl;
-
-    scoped_guard thrClient(std::thread(&TClient::worker, &client));
-    scoped_guard thrServer(std::thread(&TServer::worker, &server));
-
-//    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-//    hardware_threads = std::thread::hardware_concurrency();
-//    std::cout << hardware_threads << std::endl;
-    //thrClient.join();
-    //delete client;
 
 //    std::cout << "do something in current thread" << std::endl;
 
+//    delete messages;
 }
 
 size_t DataMessages::getIndexBlockReady()
@@ -357,40 +465,249 @@ size_t DataMessages::getIndexBlockReady()
             return i;
         }
     }
-    // Только если в очереди нет свободных блоков
-    std::unique_lock<std::mutex> lk(mtx);
-    lk.lock();
     data->push_back(std::vector<char>(SIZE_BLOCK_MESSAGE, 0));
-    lk.unlock();
-//    std::cout << "data = " << data << std::endl;
     return data->size()-1;
 }
 
 long DataMessages::getIndexBlockFilled()
 {
-    std::unique_lock<std::mutex> lock(mtx);
-     for(size_t i = 0; i < data->size(); i++) {
- //        std::cout << "code = " << std::hex << *reinterpret_cast<int16_t*>(&data->at(i).at(0)) << std::endl;
- //        std::cout << " getIndexBlockFilled " << (short)data->at(i)[0] << (short)data->at(i)[1] << std::endl;
- //        std::cout << "i = " << i  << " " << data->size() << " " << data << std::endl;
- //        try {
- //            if(data->at(i).at(0) == 0) {
- //                std::cout << "data = " << data << std::endl;
- //            }
- //        } catch (...) {
- //            std::cout << "stop " << data->size() << std::endl;
- //        }
- //        if(data->at(i)[0] == 0) {
- //            std::cout << "data = " << data << std::endl;
- //        }
-         int16_t tmp = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
-         if(tmp == CODE_MESSAGE_NEW) {
- //            std::cout << "lock_guard i= " << i << " " << std::this_thread::get_id() << std::endl;
-             data->at(i).at(0) = static_cast<char>(0x55);
- //            std::cout << "code = " << std::hex << *reinterpret_cast<int16_t*>(&data->at(i).at(0));
+    try {
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+            if(code == CODE_MESSAGE_NEW) {
+                data->at(i).at(0) = static_cast<char>(0x55);
+                return static_cast<long>(i);
+            }
 
-             return static_cast<long>(i);
-         }
-     }
-     return -1;
+        }
+    } catch (...) {
+        std::cout << "exception getIndexBlockFilled" << std::endl;
+    }
+    return -1;
+}
+
+bool DataMessages::messagesIsFilled()
+{
+    try {
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+            if(code == CODE_MESSAGE_NEW) {
+                return true;
+            }
+
+        }
+    } catch (...) {
+        std::cout << "exception getIndexBlockFilled" << std::endl;
+    }
+    return false;
+}
+
+/*
+ * Проверка кода по номеру запроса
+ */
+bool DataMessages::checkRequest(int16_t numReq, int16_t check_code)
+{
+    try {
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t check_request = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
+            if(check_request == numReq) {
+                int16_t code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+                return check_code == code;
+            }
+        }
+    } catch (...) {
+        std::cout << "exception checkRequest" << std::endl;;
+    }
+    return false;
+}
+
+//int16_t DataMessages::getCodeQueue()
+//{
+//    int16_t code = 0;
+//    try {
+//        std::lock_guard<std::mutex> lk(mtx);
+//        for(size_t i = 0; i < data->size(); i++) {
+//            code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+//            if(code != CODE_MESSAGE_PROC) {
+//                return code;
+//            }
+//        }
+//    } catch (...) {
+//        std::cout << "exception getCodeQueue" << std::endl;
+//    }
+//    return code;
+//}
+
+bool DataMessages::getMessageInfo(int16_t &code, int16_t &req)
+{
+    try {
+        code = -1;
+        req = -1;
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+            req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);                                     // Продолжить
+            if(code == CODE_MESSAGE_READY) {
+                return true;
+            }
+
+        }
+    } catch (...) {
+        std::cout << "exception getMessageInfo" << std::endl;
+    }
+    return false;
+}
+
+void DataMessages::getIndexOfReqNum(int16_t req, int16_t &index)
+{
+    try {
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t check_request = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
+            if(check_request == req) {
+                index = static_cast<int16_t>(i);
+                return;
+            }
+        }
+    } catch (...) {
+        std::cout << "exception getIndexOfNumReq";
+    }
+    index = -1;
+}
+
+bool DataMessages::setCodeOfReqNum(int16_t req, int16_t code)
+{
+    try {
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t check_request = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
+            if(check_request == req) {
+                *reinterpret_cast<int16_t*>(&data->at(i)[0]) = code;
+                return true;
+            }
+        }
+    } catch (...) {
+        std::cout << "exception setCodeOfReqNum";
+    }
+    return false;
+}
+
+bool DataMessages::clearMessage(int16_t req)
+{
+    try {
+
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t check_request = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
+            if(check_request == req) {
+                memset(data->at(static_cast<size_t>(i)).data(), 0, SIZE_BLOCK_MESSAGE);
+                return true;
+            }
+        }
+
+
+    }catch(const std::runtime_error& re)
+    {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    }
+    catch(...)
+    {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+    return false;
+}
+
+/*
+ * Поиск индекса сообщения в vector'e по номеру запроса 'req'
+ * и запись данных из 'ptrData' по номеру этого индекса
+ * В 'ptrData' предварительно заносится 2 байтный код сообщения
+ */
+bool DataMessages::changeData(char *ptrData, int16_t req, int16_t code_)
+{
+    try {
+
+        std::lock_guard<std::mutex> lk(mtx);
+        for(size_t i = 0; i < data->size(); i++) {
+            int16_t check_request = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
+            if(check_request == req) {
+                *reinterpret_cast<int16_t*>(ptrData) = static_cast<int16_t>(code_);
+                memcpy(data->at(static_cast<size_t>(i)).data(), ptrData, SIZE_BLOCK_MESSAGE);
+                return true;
+            }
+        }
+
+
+    }catch(const std::runtime_error& re)
+    {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    }
+    catch(...)
+    {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+
+}
+
+void DataMessages::addMessage(char *ptrData)
+{
+    try {
+        // Получить индекс для записи
+        // Скопировать ptrData в data
+        std::lock_guard<std::mutex> lk(mtx);
+        size_t index = getIndexBlockReady();
+    //    std::cout << "SIZE_BLOCK_MESSAGE " << SIZE_BLOCK_MESSAGE << std::endl;
+        memcpy(data->at(index).data(), ptrData, SIZE_BLOCK_MESSAGE);
+
+    }catch(const std::runtime_error& re)
+    {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    }
+    catch(...)
+    {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+
+
+}
+
+bool DataMessages::readMessage(char *&ptrData)
+{
+    try{
+        // Получить индекс для чтения
+        // скопировать данные в ptrData из data
+        std::lock_guard<std::mutex> lk(mtx);
+        long index_ = getIndexBlockFilled();
+        if(index_ >= 0) {
+            memcpy(ptrData, data->at(static_cast<size_t>(index_)).data(), SIZE_BLOCK_MESSAGE);
+            return true;
+        }
+
+    }catch(const std::runtime_error& re)
+    {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    } catch(...)
+    {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
+
+
+    return false;
 }

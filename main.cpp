@@ -227,10 +227,14 @@
 
 int main()
 {
-    test();
-    for(int i = 0;i < 10; i++){
+//    test();
+    for(int i = 0;i < 100; i++){
+        std::cout << "\n\nStart new TEST N" << std::dec << i << std::endl;
+        long mark1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()).count();
         test();
-
+        long mark2 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()).count();
+        std::cout << "End TEST, time = " << mark2 - mark1 << std::endl;
+//        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return 0;
 

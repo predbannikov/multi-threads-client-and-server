@@ -12,6 +12,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <map>
+#include <atomic>
+
 
 class TAbstract;
 
@@ -27,9 +29,12 @@ class TAbstract;
 #define MESSAGE_PREPARED        0x02
 #define MESSAGE_COMPLATE        0x03
 
-#define CODE_MESSAGE_EMPTY      0x5555
+#define CODE_MESSAGE_EMPTY      0x0000
 #define CODE_MESSAGE_PREP       0x5F55
+//#define CODE_MESSAGE_PROC       0x5555
 #define CODE_MESSAGE_NEW        0x5F5F
+#define CODE_MESSAGE_READY      0x55FF
+#define CODE_MESSAGE_COMPL      0x0055
 
 #define GET_N_ARGS_FROM_MEM(a) \
                 b =  0xFF&*(a+3+SIZE_FUNC_API);     b <<= 8; \
@@ -79,79 +84,83 @@ class scoped_guard
 {
     std::thread t;
 public:
+    std::thread::id getId() {
+        return t.get_id();
+    }
     explicit scoped_guard(std::thread t_) : t(std::move(t_)) {
         if(!t.joinable())
             throw std::logic_error("No thread");
     }
     ~scoped_guard()
     {
-        t.join();
         std::cout << "end thread: " << std::hex << std::this_thread::get_id() << std::endl;
+        t.join();
     }
     scoped_guard(scoped_guard const&) = delete;
     scoped_guard& operator=(scoped_guard const&) = delete;
 };
 
-
 struct InfoThread {
+//    std::thread t;
+
+public:
+//    explicit InfoThread(size_t size_, std::thread t_) : thread(std::move(t_)) {
+//        indxMessage = size_;
+//        if(!thread.joinable())
+//            throw std::logic_error("No thread");
+//    }
+    ~InfoThread() { delete threadGuard; }
     std::condition_variable condVar;
     std::mutex mtx;
-    scoped_guard *scGuard;
-    size_t indxMessage;
+    scoped_guard *threadGuard;
+    int16_t numRequest;
+    int complate = 0;
 };
 
 struct DataMessages {
+    DataMessages() {data = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));}
+    ~DataMessages() { delete data;
+                    std::cout << "vector deleted" << std::endl;
+                    }
     std::vector<std::vector<char > > *data;
     size_t getIndexBlockReady();
     long getIndexBlockFilled();
-private:
+    bool messagesIsFilled();
+    bool checkRequest(int16_t numReq, int16_t check_code);
+//    int16_t getCodeQueue();
+    bool getMessageInfo(int16_t &code, int16_t &req);
+    void getIndexOfReqNum(int16_t req, int16_t &index);
+    bool setCodeOfReqNum(int16_t req, int16_t code);
+
+    bool changeData(char *ptrData, int16_t req, int16_t code_);
+    void addMessage(char *ptrData);
+    bool readMessage(char *&ptrData);
     std::mutex mtx;
+
+public:
+    bool clearMessage(int16_t req);
+private:
 };
-
-//class CustomQueue {
-//    std::vector<char*> m_tableMessage;
-//public:
-//    CustomQueue() {
-
-//    }
-
-//    size_t size() { return m_tableMessage.size(); }
-
-//};
 
 class TAbstract
 {
-//    std::vector<void(*)(int, char**) > api;
-    std::vector<std::vector<char > > *data;
-    size_t indexWrite;
-    void (TAbstract::*api[COUNT_FIELD])(int16_t&, char**);
-
     std::mutex getMtx;
-
 public:
+    DataMessages *messages;
+    bool cycle = true;
     std::string m_sName;
-    std::map<size_t, InfoThread* > queueThreads;
-    TAbstract(std::vector<std::vector<char > > *data_) : data(data_) {
-        indexWrite = 0;
-        std::cout << "SIZE_PFUNC_API: " << SIZE_NUM_FUNC_API << std::endl;
-        size_t sz = 1000;
-        if(static_cast<unsigned int>(sz) > SIZE_API_TABLE) {
-            for(size_t i = 0; i < COUNT_FIELD; i++)
-                api[i] = &TAbstract::call;
-        } else {
-            std::cout << "error init block API" << std::endl;
-        }
+    TAbstract(DataMessages *data_) : messages(data_) {
     }
     virtual int writeMessage() = 0;
     virtual int readMessage() = 0;
     virtual int worker() = 0;
     virtual ~TAbstract();
-    int openSession(size_t anNumMessage);
     int createRequest(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
-    size_t getIndexBlockReady();
-    long getIndexBlockFilled();
+    int createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
 
-    void call(int16_t &, char**);
+//    size_t getIndexBlockReady();
+//    long getIndexBlockFilled();
+
 
     TAbstract(const TAbstract&) = delete;
     TAbstract& operator=(const TAbstract&) = delete;
@@ -161,22 +170,35 @@ public:
 
 class TServer : public TAbstract
 {
+    void (TServer::*api[COUNT_FIELD])(int16_t&, char**);
+    std::thread t;
+    std::vector<std::thread> threads;
+    std::vector<std::string*> strings;
 public:
-    TServer(std::vector<std::vector<char > > *data_);
+    int openSession(size_t anNumMessage);
+    void call(int16_t &, char**);
+
+    TServer(DataMessages *messages_);
     int worker() override;
     int writeMessage() override;
     int readMessage() override;
     ~TServer() override;
+    TServer(TServer const&) = delete;
+    TServer& operator=(TServer const&) = delete;
 };
 
 class TClient : public TAbstract
 {
+    std::map<int16_t, InfoThread* > queueThreads;
+    std::thread t;
 public:
-    TClient(std::vector<std::vector<char > > *data_);
+    TClient(DataMessages *messages_);
     int worker() override;
     int writeMessage() override;
     int readMessage() override;
     ~TClient() override;
+    TClient(TClient const&) = delete;
+    TClient& operator=(TClient const&) = delete;
 };
 
 
