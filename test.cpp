@@ -7,7 +7,7 @@
 
 
 TAbstract::~TAbstract() {
-//    std::cout << "end thread " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
+//    std::cout << "~TAbstract " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
 
 //    if(m_sName == "server") {
 //        std::cout << std::endl << "Data" << std::hex << std::endl;
@@ -86,23 +86,24 @@ int TServer::openSession(size_t anNumMessage)
 }
 
 void TServer::call(int16_t &nArgs, char **ppchArgs){
-
-    std::string *strtmp = reinterpret_cast<std::string*>(*ppchArgs);
-    if(*strtmp == "stop server") {
-        cycle = false;
+    try {
+        std::string *strtmp = reinterpret_cast<std::string*>(*ppchArgs);
+        if(*strtmp == "stop server") {
+            cycle = false;
+        }
+        std::string *strResponse = new std::string(sha256(strtmp));
+    //    strings.push_back(strResponse);
+        delete *ppchArgs;
+        nArgs++;
+        ppchArgs = new char*[static_cast<size_t>(nArgs)] {
+                reinterpret_cast<char*>(strtmp),
+                reinterpret_cast<char*>(strResponse)
+        };
+    } catch (...) {
+        std::cerr << "Call: Unknown failure occurred. Possible memory corruption" << std::endl;
     }
-//    std::cout << *strtmp << " " << std::hex << std::this_thread::get_id() << std::endl;
-    std::string *strResponse = new std::string(sha256(strtmp));
-//    std::cout << *strResponse << std::endl;;
-    strings.push_back(strResponse);
-    delete ppchArgs;
-    nArgs++;
-    ppchArgs = new char*[static_cast<size_t>(nArgs)] {
-            reinterpret_cast<char*>(strtmp),
-            reinterpret_cast<char*>(strResponse)
-    };
 
-//    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
 }
 
 int TAbstract::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **appchData)
@@ -136,6 +137,12 @@ int TAbstract::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **app
         messages->addMessage(data);
 
 
+        try {
+            std::unique_lock<std::mutex> lk(infoThr->mtx);
+
+        } catch (...) {
+            std::cerr << "unique_lock before contition_variable proc" << std::endl;
+        }
         std::unique_lock<std::mutex> lk(infoThr->mtx);
     //    std::vector<char> &ptr = messages->data->at(infoThr->indxMessage);
         infoThr->condVar.wait(lk, [infoThr, this] (){
@@ -156,16 +163,11 @@ int TAbstract::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **app
 //        std::cout << "end creat: numReq = " << std::dec << numRequest << std::endl;
 
 
-    }catch(const std::runtime_error& re)
-    {
+    }catch(const std::runtime_error& re) {
         std::cerr << "Runtime error: " << re.what() << std::endl;
-    }
-    catch(const std::exception& ex)
-    {
+    } catch(const std::exception& ex) {
         std::cerr << "Error occurred: " << ex.what() << std::endl;
-    }
-    catch(...)
-    {
+    } catch(...) {
         std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
     }
 
@@ -179,31 +181,36 @@ int TAbstract::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **app
 
 int TAbstract::createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, char **appchData)
 {
-    const int16_t numApiFunc = 1;
-    const int16_t codeMessage = CODE_MESSAGE_NEW ;                  //MESSAGE_FILLED;
-    const int16_t countArgs = aCountArgs;
-    const int16_t numRequest = infoThr->numRequest;
-    int64_t prepFuncArgs = numApiFunc;
-    prepFuncArgs <<= 16;             // Пустое место - номер запроса
-    prepFuncArgs |= countArgs;
-    prepFuncArgs <<= 16;
-    prepFuncArgs |= numRequest;
-    prepFuncArgs <<= SIZE_NUM_FUNC_API * 8;
-    prepFuncArgs |= codeMessage;
-    char data[SIZE_BLOCK_MESSAGE];
-    memcpy(data, &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
-    memcpy(data + SIZE_PARAMETERS_INT, &appchData, sizeof appchData);
-    messages->addMessage(data);
+    try {
 
-    std::unique_lock<std::mutex> lk(infoThr->mtx);
-    infoThr->condVar.wait(lk, [infoThr, this] (){
-        bool bl = this->messages->checkRequest(infoThr->numRequest, CODE_MESSAGE_READY);
-        return  bl;
+        const int16_t numApiFunc = 1;
+        const int16_t codeMessage = CODE_MESSAGE_NEW ;                  //MESSAGE_FILLED;
+        const int16_t countArgs = aCountArgs;
+        const int16_t numRequest = infoThr->numRequest;
+        int64_t prepFuncArgs = numApiFunc;
+        prepFuncArgs <<= 16;             // Пустое место - номер запроса
+        prepFuncArgs |= countArgs;
+        prepFuncArgs <<= 16;
+        prepFuncArgs |= numRequest;
+        prepFuncArgs <<= SIZE_NUM_FUNC_API * 8;
+        prepFuncArgs |= codeMessage;
+        char data[SIZE_BLOCK_MESSAGE];
+        memcpy(data, &prepFuncArgs, SIZE_PARAMETERS_INT);  // функция + RET + ARGS
+        memcpy(data + SIZE_PARAMETERS_INT, &appchData, sizeof appchData);
+        messages->addMessage(data);
 
-    });
+        std::unique_lock<std::mutex> lk(infoThr->mtx);
+        infoThr->condVar.wait(lk, [infoThr, this] (){
+            bool bl = this->messages->checkRequest(infoThr->numRequest, CODE_MESSAGE_READY);
+            return  bl;
 
-    messages->changeData(data, infoThr->numRequest, CODE_MESSAGE_COMPL);
-    std::cout << "end creat stop server: numReq = " << std::dec << numRequest << std::endl;
+        });
+
+        messages->changeData(data, infoThr->numRequest, CODE_MESSAGE_COMPL);
+        std::cout << "end creat stop server: numReq = " << std::dec << numRequest << std::endl;
+    } catch (...) {
+        std::cerr << "Create Request Stop Server: Unknown failure occurred. Possible memory corruption" << std::endl;
+    }
     return 0;
 }
 
@@ -245,39 +252,65 @@ int TServer::readMessage() {
 }
 
 TServer::~TServer() {
-    t.join();
-    std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
-//    threads.clear();
-    std::cout << "~" << m_sName << "()" << std::endl;
-    delete messages;
+    try{
 
-    for(size_t i = 0; i < strings.size(); i++) {
-        delete strings[i];
+        t.join();
+
+        std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
+        threads.clear();
+
+        for(size_t i = 0; i < strings.size(); i++) {
+            delete strings[i];
+        }
+        strings.clear();
+
+        delete messages;
+        std::cout << "~" << m_sName << "()" << std::endl;
+
+
+    } catch(const std::runtime_error& re) {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    } catch(const std::exception& ex) {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    } catch(...) {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
     }
-    strings.clear();
 }
 
 int TServer::worker()
 {
-    std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
-//    long tmp_counter = 0;
-    //std::shared_ptr<scoped_guard> scope_guard_share;
-    while(cycle) {
-//        const long indexData = tmp_counter; //messages->getIndexBlockFilled();
-//        if(indexData < 0) {
-//            std::this_thread::sleep_for(std::chrono::milliseconds(150));
-//            continue;
-//        }
+    try {
 
-        // Дальше проходим только если в очереди есть есть необработанные блоки
-        if(messages->messagesIsFilled())
-            threads.push_back(std::thread(&TServer::openSession, this, 1));
+        std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
+    //    long tmp_counter = 0;
+        //std::shared_ptr<scoped_guard> scope_guard_share;
+        while(cycle) {
+    //        const long indexData = tmp_counter; //messages->getIndexBlockFilled();
+    //        if(indexData < 0) {
+    //            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    //            continue;
+    //        }
+
+            // Дальше проходим только если в очереди есть есть необработанные блоки
+            if(messages->messagesIsFilled()) {
+                try {
+                    threads.push_back(std::thread(&TServer::openSession, this, 1));
+
+                } catch (...) {
+                    std::cerr << "TServer::worker: threads.push_back() size = " << std::dec << threads.size() << std::endl;
+                    return 0;
+                }
+
+            }
 
 
-//        std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    //        std::this_thread::sleep_for(std::chrono::milliseconds(3));
 
+        }
+    //    std::cout << "\nServer worker end" << std::endl;
+    } catch (...) {
+        std::cerr << "TServer::worker: Unknown failure occurred. Possible memory corruption" << std::endl;
     }
-//    std::cout << "\nServer worker end" << std::endl;
     return 0;
 }
 
@@ -298,74 +331,106 @@ TClient::TClient(DataMessages *messages_) :  TAbstract(messages_) {
 
 int TClient::worker()
 {
-    std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
 
-    int16_t tmp_counter = 0;
-    std::string *strTmp;
-    char **ppchTmp = nullptr;
-    InfoThread *infoThr;
-    while(cycle) {
-        int16_t code;
-        int16_t req = 0;
-//        std::this_thread::sleep_for(std::chrono::milliseconds(8));
-        if(!messages->getMessageInfo(code, req)) {      // Получаем первый блок сообщения готовый к дальнейшей обработки
-                                                        // NOTE:
-//            continue;
-        }
 
-        switch (code) {
-//        case CODE_MESSAGE_NEW:
-//            std::cout << "message new" << std::endl;
-//            break;
-        case CODE_MESSAGE_EMPTY:                        // По умолчанию
-            if(tmp_counter < COUNT_MAX_REQUEST)
-            {
-                strTmp = new std::string("hello world");
+    try {
+
+        std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
+
+        int16_t tmp_counter = 1;
+        std::string *strTmp;
+        char **ppchTmp = nullptr;
+        InfoThread *infoThr;
+        while(cycle) {
+            int16_t code;
+            int16_t req = -1;
+            if(!messages->getMessageReady(code, req) && !complate) {
+                if(!messages->getMessageInfo(code, req)) {
+                    strTmp = new std::string("hello world");
+                    ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
+                            reinterpret_cast<char*>(strTmp)
+                    };
+                    infoThr = new InfoThread;
+                    infoThr->numRequest = tmp_counter;
+                    infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequest, this, infoThr, 1, ppchTmp));       // передаются ссылки
+                    queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
+                    tmp_counter++;
+                    if(tmp_counter >= COUNT_MAX_REQUEST)
+                        complate = true;
+                    continue;
+                }
+                switch (code) {
+                case CODE_MESSAGE_EMPTY:                        // Если пустые
+                    strTmp = new std::string("hello world");
+                    ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
+                            reinterpret_cast<char*>(strTmp)
+                    };
+                    infoThr = new InfoThread;
+                    infoThr->numRequest = tmp_counter;
+                    infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequest, this, infoThr, 1, ppchTmp));       // передаются ссылки
+                    queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
+                    tmp_counter++;
+                    if(tmp_counter >= COUNT_MAX_REQUEST)
+                        complate = true;
+
+                    //                        std::cout << "map insert " << infoThr->numRequest << std::endl;
+
+                    break;
+
+
+                }
+                continue;
+            }
+            // ------------------------------------------------------------
+
+            switch (code) {
+            case CODE_MESSAGE_READY:
+    //            std::cout << "notify_one: req = " << req << std::endl;
+                queueThreads[req]->condVar.notify_one();
+
+                break;
+            case CODE_MESSAGE_COMPL:
+
+                messages->clearMessage(req);
+                queueThreads.erase(req);
+                if(queueThreads.empty() && complate) {
+    //                cycle = false;
+                }
+
+                break;
+            }
+
+
+            if(queueThreads.empty() && tmp_counter == COUNT_MAX_REQUEST) {
+                strTmp = new std::string("stop server");
                 ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
                         reinterpret_cast<char*>(strTmp)
                 };
                 infoThr = new InfoThread;
                 infoThr->numRequest = tmp_counter;
-                infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequest, this, infoThr, 1, ppchTmp));       // передаются ссылки
+                infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequestStopServer, this, infoThr, 1, ppchTmp));       // передаются ссылки
                 queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
+                tmp_counter++;
+                if(tmp_counter >= COUNT_MAX_REQUEST)
+                    complate = true;
+
+    //            break;
             }
-            //            std::cout << "map insert " << infoThr->numRequest << std::endl;
+    //        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            if(code == 0 && req == 0 && queueThreads.empty())
+                break;
 
-            break;
-        case CODE_MESSAGE_READY:
-//            std::cout << "notify_one: req = " << req << std::endl;
-            queueThreads[req]->condVar.notify_one();
-
-            break;
-        case CODE_MESSAGE_COMPL:
-
-            messages->clearMessage(req);
-            queueThreads.erase(req);
-            if(queueThreads.empty() && tmp_counter > COUNT_MAX_REQUEST && queueThreads.empty()) {
-                cycle = false;
-            }
-
-            break;
         }
 
-
-        if(queueThreads.empty() && tmp_counter == COUNT_MAX_REQUEST) {
-            strTmp = new std::string("stop server");
-            ppchTmp = new char*[static_cast<size_t>(1)] {    // количество указателей (аргументов)
-                    reinterpret_cast<char*>(strTmp)
-            };
-            infoThr = new InfoThread;
-            infoThr->numRequest = tmp_counter;
-            infoThr->threadGuard = new scoped_guard(std::thread(&TClient::createRequestStopServer, this, infoThr, 1, ppchTmp));       // передаются ссылки
-            queueThreads.insert(std::make_pair(infoThr->numRequest, infoThr));
-            tmp_counter++;
-//            break;
-        }
-
-        if(tmp_counter >= COUNT_MAX_REQUEST)
-            continue;
-        tmp_counter++;
+    } catch(const std::runtime_error& re) {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    } catch(const std::exception& ex) {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    } catch(...) {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
     }
+
+
 
 //    std::cout << "\nClient worker end" << std::endl;
     return 0;
@@ -390,11 +455,25 @@ TClient::~TClient() {
 ////         std::mem_fn(&std::thread::join);
 //    });
 //    std::cout << "delete ~" << m_sName << "() queuetThreads" << std::endl;
-    for(auto info: queueThreads) {
-        delete info.second;
+    try {
+
+
+        for(auto info: queueThreads) {
+            delete info.second;
+        }
+        queueThreads.clear();
+        std::cout << "~" << m_sName << "()" << std::endl;
+
+
+    } catch(const std::runtime_error& re) {
+        std::cerr << "Runtime error: " << re.what() << std::endl;
+    } catch(const std::exception& ex) {
+        std::cerr << "Error occurred: " << ex.what() << std::endl;
+    } catch(...) {
+        std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
     }
-    queueThreads.clear();
-    std::cout << "~" << m_sName << "()" << std::endl;
+
+
 }
 static int i = 0;
 
@@ -442,7 +521,7 @@ void test3(std::vector<std::vector<char >> &vec2) {
     std::cout << "stop test" << std::endl;
 }
 
-void test() {
+int test() {
 
 
     //std::vector<std::vector<char >> *vec = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));
@@ -456,6 +535,7 @@ void test() {
 //    std::cout << "do something in current thread" << std::endl;
 
 //    delete messages;
+    return 0;
 }
 
 size_t DataMessages::getIndexBlockReady()
@@ -523,22 +603,6 @@ bool DataMessages::checkRequest(int16_t numReq, int16_t check_code)
     return false;
 }
 
-//int16_t DataMessages::getCodeQueue()
-//{
-//    int16_t code = 0;
-//    try {
-//        std::lock_guard<std::mutex> lk(mtx);
-//        for(size_t i = 0; i < data->size(); i++) {
-//            code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
-//            if(code != CODE_MESSAGE_PROC) {
-//                return code;
-//            }
-//        }
-//    } catch (...) {
-//        std::cout << "exception getCodeQueue" << std::endl;
-//    }
-//    return code;
-//}
 
 bool DataMessages::getMessageInfo(int16_t &code, int16_t &req)
 {
@@ -546,18 +610,45 @@ bool DataMessages::getMessageInfo(int16_t &code, int16_t &req)
         code = -1;
         req = -1;
         std::lock_guard<std::mutex> lk(mtx);
+
         for(size_t i = 0; i < data->size(); i++) {
             code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
             req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);                                     // Продолжить
-            if(code == CODE_MESSAGE_READY) {
+            switch (code) {
+            case CODE_MESSAGE_EMPTY:
                 return true;
             }
+//            if(code == CODE_MESSAGE_EMPTY) {
+//                return true;
+//            }
 
         }
     } catch (...) {
         std::cout << "exception getMessageInfo" << std::endl;
     }
     return false;
+}
+
+bool DataMessages::getMessageReady(int16_t &code, int16_t &req)
+{
+    code = -1;
+    req = -1;
+    std::lock_guard<std::mutex> lk(mtx);
+    for(size_t i = 0; i < data->size(); i++) {
+        code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
+        req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);                                     // Продолжить
+        switch (code) {
+        case CODE_MESSAGE_COMPL:
+        case CODE_MESSAGE_READY:
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DataMessages::isMessageEmpty()
+{
+
 }
 
 void DataMessages::getIndexOfReqNum(int16_t req, int16_t &index)
@@ -625,8 +716,9 @@ bool DataMessages::clearMessage(int16_t req)
 
 /*
  * Поиск индекса сообщения в vector'e по номеру запроса 'req'
- * и запись данных из 'ptrData' по номеру этого индекса
- * В 'ptrData' предварительно заносится 2 байтный код сообщения
+ * и запись данных из 'ptrData' по номеру этого индекса.
+ * В 'ptrData' предварительно заносится 2 байтный код сообщения.
+ * Потокозащищенное.
  */
 bool DataMessages::changeData(char *ptrData, int16_t req, int16_t code_)
 {

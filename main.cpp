@@ -228,7 +228,7 @@
 int main()
 {
 //    test();
-    for(int i = 0;i < 100; i++){
+    for(int i = 0;i < 10000; i++){
         std::cout << "\n\nStart new TEST N" << std::dec << i << std::endl;
         long mark1 = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock().now().time_since_epoch()).count();
         test();

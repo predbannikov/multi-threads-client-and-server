@@ -36,6 +36,12 @@ class TAbstract;
 #define CODE_MESSAGE_READY      0x55FF
 #define CODE_MESSAGE_COMPL      0x0055
 
+
+
+#define MESSAGE_INIT            0x0001
+
+
+
 #define GET_N_ARGS_FROM_MEM(a) \
                 b =  0xFF&*(a+3+SIZE_FUNC_API);     b <<= 8; \
                 b |= 0xFF&*(a+2+SIZE_FUNC_API);     b <<= 8; \
@@ -62,7 +68,7 @@ class TAbstract;
                 b |= 0xFF&*(a+SIZE_FUNC_API+sizeof(int));
 
 
-void test();
+int test();
 
 struct func
 {
@@ -120,7 +126,7 @@ public:
 struct DataMessages {
     DataMessages() {data = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));}
     ~DataMessages() { delete data;
-                    std::cout << "vector deleted" << std::endl;
+//                    std::cout << "vector deleted" << std::endl;
                     }
     std::vector<std::vector<char > > *data;
     size_t getIndexBlockReady();
@@ -129,6 +135,8 @@ struct DataMessages {
     bool checkRequest(int16_t numReq, int16_t check_code);
 //    int16_t getCodeQueue();
     bool getMessageInfo(int16_t &code, int16_t &req);
+    bool getMessageReady(int16_t &code, int16_t &req);
+    bool isMessageEmpty();
     void getIndexOfReqNum(int16_t req, int16_t &index);
     bool setCodeOfReqNum(int16_t req, int16_t code);
 
@@ -191,6 +199,7 @@ class TClient : public TAbstract
 {
     std::map<int16_t, InfoThread* > queueThreads;
     std::thread t;
+    bool complate = false;
 public:
     TClient(DataMessages *messages_);
     int worker() override;
