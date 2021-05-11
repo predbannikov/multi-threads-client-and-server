@@ -6,6 +6,10 @@
 #include "sha256.h"
 
 
+#define COUNT_MAX_REQUEST   1000
+#define COUNT_MAX_THREADS   64
+
+
 TAbstract::~TAbstract() {
 //    std::cout << "~TAbstract " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
 
@@ -22,56 +26,68 @@ TAbstract::~TAbstract() {
 
 int TServer::openSession(size_t anNumMessage)
 {
+
+
+
     try {
-
-//    std::cout << std::endl;
-//    std::cout << "Server " << std::endl;
-//    for(auto i: data->at(anNumMessage))
-//        std::cout << (0xFF&i) << " ";
-//    std::cout << std::endl;
-//        std::cout << "openSession: " << std::hex << std::this_thread::get_id() << std::endl;
-
         char data[SIZE_BLOCK_MESSAGE];
         char *pData = &data[0];
-//        std::shared_ptr<char> sptr(data);
-        if(!messages->readMessage(pData)) {
-//            std::cout << "not read message" << std::endl;
-            return 0;
+        while(cycle) {
+
+            //    std::cout << std::endl;
+            //    std::cout << "Server " << std::endl;
+            //    for(auto i: data->at(anNumMessage))
+            //        std::cout << (0xFF&i) << " ";
+            //    std::cout << std::endl;
+            //        std::cout << "openSession: " << std::hex << std::this_thread::get_id() << std::endl;
+
+            //        std::shared_ptr<char> sptr(data);
+//            memset(pData, 0, SIZE_BLOCK_MESSAGE);
+//            if(!messages->messagesIsFilled()) {
+//                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+
+//            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            if(!messages->readMessage(pData)) {
+                //            std::cout << "not read message" << std::endl;
+                continue;
+            }
+            //    std::lock_guard<std::mutex> lk(messages->mtx);
+            int64_t intPart = *reinterpret_cast<int64_t*>(pData);
+            //    int64_t intPart = *reinterpret_cast<int64_t*>(&messages->data->at(anNumMessage).at(0));
+            int16_t code = static_cast<int16_t>(intPart);
+            int16_t reqNum = static_cast<int16_t>(intPart >>= 16);
+            int16_t funcNum = static_cast<int16_t>(intPart >>= 16);
+
+            //    std::cout << "code: " << code << std::endl;
+
+            int16_t countArgs = static_cast<int16_t>(intPart);
+
+            //std::cout << "SIZE_PARAMETERS_INT " << SIZE_PARAMETERS_INT << std::endl;
+            //    char **ptr = reinterpret_cast<char**>(*reinterpret_cast<char**>(&data->at(anNumMessage).at(SIZE_PARAMETERS_INT)));
+            //    long mark = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            //    for(long i = 0; i < 500000000; i++) {
+            //        char **pTmp = reinterpret_cast<char**>(*reinterpret_cast<char**>(&data->at(anNumMessage).at(SIZE_PARAMETERS_INT)));
+            //    }
+            //    long dmark = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mark;
+            //    std::cout << "1 dmark = " << std::dec << dmark << std::endl;
+
+            //    char& p = messages->data->at(anNumMessage).at(SIZE_PARAMETERS_INT);
+
+            //    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+            void (TServer::*pFunc)(int16_t&, char**);
+            pFunc = api[funcNum];
+            char** ptr = nullptr;
+            memcpy(&ptr, pData + SIZE_PARAMETERS_INT, sizeof(char*));
+            //    std::cout << "." << std::endl;
+            (this->*pFunc)(countArgs, ptr);
+
+            memcpy(pData + SIZE_PARAMETERS_INT, &ptr, sizeof(char**));
+
+            messages->changeData(pData, reqNum, CODE_MESSAGE_READY);
+
         }
-//    std::lock_guard<std::mutex> lk(messages->mtx);
-    int64_t intPart = *reinterpret_cast<int64_t*>(pData);
-//    int64_t intPart = *reinterpret_cast<int64_t*>(&messages->data->at(anNumMessage).at(0));
-    int16_t code = static_cast<int16_t>(intPart);
-    int16_t reqNum = static_cast<int16_t>(intPart >>= 16);
-    int16_t funcNum = static_cast<int16_t>(intPart >>= 16);
-
-//    std::cout << "code: " << code << std::endl;
-
-    int16_t countArgs = static_cast<int16_t>(intPart);
-
-    //std::cout << "SIZE_PARAMETERS_INT " << SIZE_PARAMETERS_INT << std::endl;
-//    char **ptr = reinterpret_cast<char**>(*reinterpret_cast<char**>(&data->at(anNumMessage).at(SIZE_PARAMETERS_INT)));
-//    long mark = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-//    for(long i = 0; i < 500000000; i++) {
-//        char **pTmp = reinterpret_cast<char**>(*reinterpret_cast<char**>(&data->at(anNumMessage).at(SIZE_PARAMETERS_INT)));
-//    }
-//    long dmark = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mark;
-//    std::cout << "1 dmark = " << std::dec << dmark << std::endl;
-
-//    char& p = messages->data->at(anNumMessage).at(SIZE_PARAMETERS_INT);
-
-//    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
-    void (TServer::*pFunc)(int16_t&, char**);
-    pFunc = api[funcNum];   //TODO узнать почему в массиве функций изменяются значения
-    char** ptr = nullptr;
-    memcpy(&ptr, pData + SIZE_PARAMETERS_INT, sizeof(char*));
-//    std::cout << "." << std::endl;
-    (this->*pFunc)(countArgs, ptr);
-
-    memcpy(pData + SIZE_PARAMETERS_INT, &ptr, sizeof(char**));
-
-    messages->changeData(pData, reqNum, CODE_MESSAGE_READY);
 
     } catch(const std::runtime_error& re) {
         std::cerr << "Runtime error: " << re.what() << std::endl;
@@ -207,7 +223,7 @@ int TAbstract::createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, 
         });
 
         messages->changeData(data, infoThr->numRequest, CODE_MESSAGE_COMPL);
-        std::cout << "end creat stop server: numReq = " << std::dec << numRequest << std::endl;
+//        std::cout << "end creat stop server: numReq = " << std::dec << numRequest << std::endl;
     } catch (...) {
         std::cerr << "Create Request Stop Server: Unknown failure occurred. Possible memory corruption" << std::endl;
     }
@@ -256,6 +272,10 @@ TServer::~TServer() {
 
         t.join();
 
+        size_t cout_threads = threads.size();
+        static size_t max_active_thread = 0;
+        if(max_active_thread < cout_threads)
+            max_active_thread = cout_threads;
         std::for_each(threads.begin(), threads.end(), std::mem_fn(&std::thread::join));
         threads.clear();
 
@@ -265,7 +285,7 @@ TServer::~TServer() {
         strings.clear();
 
         delete messages;
-        std::cout << "~" << m_sName << "()" << std::endl;
+        std::cout << "~" << m_sName << "() threads = " << std::dec << cout_threads << " max = " << max_active_thread << std::endl;
 
 
     } catch(const std::runtime_error& re) {
@@ -284,29 +304,43 @@ int TServer::worker()
         std::cout << "start " << m_sName << ": " << std::hex << std::this_thread::get_id() << std::endl;
     //    long tmp_counter = 0;
         //std::shared_ptr<scoped_guard> scope_guard_share;
-        while(cycle) {
-    //        const long indexData = tmp_counter; //messages->getIndexBlockFilled();
-    //        if(indexData < 0) {
-    //            std::this_thread::sleep_for(std::chrono::milliseconds(150));
-    //            continue;
-    //        }
-
-            // Дальше проходим только если в очереди есть есть необработанные блоки
-            if(messages->messagesIsFilled()) {
-                try {
-                    threads.push_back(std::thread(&TServer::openSession, this, 1));
-
-                } catch (...) {
-                    std::cerr << "TServer::worker: threads.push_back() size = " << std::dec << threads.size() << std::endl;
-                    return 0;
-                }
-
-            }
-
-
-    //        std::this_thread::sleep_for(std::chrono::milliseconds(3));
-
+        size_t thread_count = std::thread::hardware_concurrency();
+        thread_count = COUNT_MAX_THREADS;
+        threads.resize(thread_count);
+        for(size_t i = 0; i < thread_count; i++) {
+            threads[i] = std::thread(&TServer::openSession, this, 1);
         }
+//        size_t index_thread = 0;
+//        while(cycle) {
+//    //        const long indexData = tmp_counter; //messages->getIndexBlockFilled();
+//    //        if(indexData < 0) {
+//    //            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+//    //            continue;
+//    //        }
+
+//            // Дальше проходим только если в очереди есть есть необработанные блоки
+//            if(messages->messagesIsFilled()) {
+//                try {
+//                    if(!threads[index_thread].joinable()) {
+//                        threads[index_thread] = std::thread(&TServer::openSession, this, 1);
+//                        index_thread++;
+//                    } else {
+//                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+//                    }
+//                    if(index_thread >= thread_count)
+//                        index_thread = 0;
+
+//                } catch (...) {
+//                    std::cerr << "TServer::worker: threads.push_back() size = " << std::dec << threads.size() << std::endl;
+//                    return 0;
+//                }
+
+//            }
+
+
+//    //        std::this_thread::sleep_for(std::chrono::milliseconds(3));
+
+//        }
     //    std::cout << "\nServer worker end" << std::endl;
     } catch (...) {
         std::cerr << "TServer::worker: Unknown failure occurred. Possible memory corruption" << std::endl;
@@ -327,7 +361,6 @@ TClient::TClient(DataMessages *messages_) :  TAbstract(messages_) {
 
 }
 
-#define COUNT_MAX_REQUEST   100
 
 int TClient::worker()
 {
@@ -392,6 +425,7 @@ int TClient::worker()
             case CODE_MESSAGE_COMPL:
 
                 messages->clearMessage(req);
+                delete queueThreads[req];
                 queueThreads.erase(req);
                 if(queueThreads.empty() && complate) {
     //                cycle = false;
@@ -521,6 +555,11 @@ void test3(std::vector<std::vector<char >> &vec2) {
     std::cout << "stop test" << std::endl;
 }
 
+
+void test4() {
+
+}
+
 int test() {
 
 
@@ -613,7 +652,7 @@ bool DataMessages::getMessageInfo(int16_t &code, int16_t &req)
 
         for(size_t i = 0; i < data->size(); i++) {
             code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
-            req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);                                     // Продолжить
+            req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
             switch (code) {
             case CODE_MESSAGE_EMPTY:
                 return true;
@@ -636,7 +675,7 @@ bool DataMessages::getMessageReady(int16_t &code, int16_t &req)
     std::lock_guard<std::mutex> lk(mtx);
     for(size_t i = 0; i < data->size(); i++) {
         code = *reinterpret_cast<int16_t*>(&data->at(i)[0]);
-        req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);                                     // Продолжить
+        req = *reinterpret_cast<int16_t*>(&data->at(i)[2]);
         switch (code) {
         case CODE_MESSAGE_COMPL:
         case CODE_MESSAGE_READY:
@@ -646,10 +685,7 @@ bool DataMessages::getMessageReady(int16_t &code, int16_t &req)
     return false;
 }
 
-bool DataMessages::isMessageEmpty()
-{
 
-}
 
 void DataMessages::getIndexOfReqNum(int16_t req, int16_t &index)
 {
@@ -747,7 +783,7 @@ bool DataMessages::changeData(char *ptrData, int16_t req, int16_t code_)
     {
         std::cerr << "Unknown failure occurred. Possible memory corruption" << std::endl;
     }
-
+    return false;
 }
 
 void DataMessages::addMessage(char *ptrData)

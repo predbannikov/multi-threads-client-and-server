@@ -99,7 +99,7 @@ public:
     }
     ~scoped_guard()
     {
-        std::cout << "end thread: " << std::hex << std::this_thread::get_id() << std::endl;
+//        std::cout << "end thread: " << std::hex << std::this_thread::get_id() << std::endl;
         t.join();
     }
     scoped_guard(scoped_guard const&) = delete;
@@ -136,7 +136,6 @@ struct DataMessages {
 //    int16_t getCodeQueue();
     bool getMessageInfo(int16_t &code, int16_t &req);
     bool getMessageReady(int16_t &code, int16_t &req);
-    bool isMessageEmpty();
     void getIndexOfReqNum(int16_t req, int16_t &index);
     bool setCodeOfReqNum(int16_t req, int16_t code);
 
@@ -209,6 +208,136 @@ public:
     TClient(TClient const&) = delete;
     TClient& operator=(TClient const&) = delete;
 };
+
+
+
+
+
+
+
+
+//template<typename T>
+//class threadsafe_queue
+//{
+//private:
+//    struct node
+//    {
+//        std::shared_ptr<T> data;
+//        std::unique_ptr<node> next;
+//    };
+//    std::mutex head_mutex;
+//    std::unique_ptr<node> head;
+//    std::mutex tail_mutex;
+//    node* tail;
+//    node* get_tail()
+//    {
+//        std::lock_guard<std::mutex> tail_lock(tail_mutex);
+//        return tail;
+//    }
+//    std::unique_ptr<node> pop_head()
+//    {
+//        std::lock_guard<std::mutex> head_lock(head_mutex);
+//        if(head.get()==get_tail())
+//        {
+//            return nullptr;
+//        }
+//        std::unique_ptr<node> old_head=std::move(head);
+//        head=std::move(old_head->next);
+//        return old_head;
+//    }
+//public:
+//    threadsafe_queue():
+//        head(new node),tail(head.get())
+//    {}
+//    threadsafe_queue(const threadsafe_queue& other)=delete;
+//    threadsafe_queue& operator=(const threadsafe_queue& other)=delete;
+//    void try_pop(std::shared_ptr<T> &t)
+//    {
+//        std::unique_ptr<node> old_head=pop_head();
+//        t = old_head?old_head->data:std::shared_ptr<T>();
+
+//    }
+//    void push(T new_value)
+//    {
+//        std::shared_ptr<T> new_data(
+//                    std::make_shared<T>(std::move(new_value)));
+//        std::unique_ptr<node> p(new node);
+//        node* const new_tail=p.get();
+//        std::lock_guard<std::mutex> tail_lock(tail_mutex);
+//        tail->data=new_data;
+//        tail->next=std::move(p);
+//        tail=new_tail;
+//    }
+//};
+
+//class join_threads
+//{
+//    std::vector<std::thread>& threads;
+//public:
+//    explicit join_threads(std::vector<std::thread>& threads_):
+//        threads(threads_)
+//    {}
+//    ~join_threads()
+//    {
+//        for(unsigned long i=0;i<threads.size();++i)
+//        {
+//            if(threads[i].joinable())
+//                threads[i].join();
+//        }
+//    }
+//};
+
+//class thread_pool
+//{
+//    std::atomic_bool done;
+//    threadsafe_queue<std::function<void()> > work_queue;
+//    std::vector<std::thread> threads;
+//    join_threads joiner;
+//    void worker_thread()
+//    {
+//        while(!done)
+//        {
+//            std::function<void()> task;
+//            std::shared_ptr<std::function<void()>> ptrTask;
+//            if(work_queue.try_pop(ptrTask))
+//            {
+//                task();
+//            }
+//            else
+//            {
+//                std::this_thread::yield();
+//            }
+//        }
+//    }
+//public:
+//    thread_pool():
+//        done(false),joiner(threads)
+//    {
+//        unsigned const thread_count=std::thread::hardware_concurrency();
+//        try
+//        {
+//            for(unsigned i=0;i<thread_count;++i)
+//            {
+//                threads.push_back(
+//                            std::thread(&thread_pool::worker_thread,this));
+//            }
+//        }
+//        catch(...)
+//        {
+//            done=true;
+//            throw;
+//        }
+//    }
+//    ~thread_pool()
+//    {
+//        done=true;
+//    }
+//    template<typename FunctionType>
+//    void submit(FunctionType f)
+//    {
+//        work_queue.push(std::function<void()>(f));
+//    }
+//};
 
 
 #endif // TEST_H
