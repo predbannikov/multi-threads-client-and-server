@@ -106,6 +106,11 @@ public:
     scoped_guard& operator=(scoped_guard const&) = delete;
 };
 
+struct ThreadInfo2 {
+    bool cycle = false;
+    std::thread thread;
+};
+
 struct InfoThread {
 //    std::thread t;
 
@@ -115,33 +120,51 @@ public:
 //        if(!thread.joinable())
 //            throw std::logic_error("No thread");
 //    }
-    ~InfoThread() { delete threadGuard; }
+    ~InfoThread() {
+        delete threadGuard;
+    }
     std::condition_variable condVar;
     std::mutex mtx;
     scoped_guard *threadGuard;
     int16_t numRequest;
-    int complate = 0;
+    bool cycle = true;
 };
 
 struct DataMessages {
     DataMessages() {data = new std::vector<std::vector<char >>(0, std::vector<char>(SIZE_BLOCK_MESSAGE));}
-    ~DataMessages() { delete data;
+    ~DataMessages() {
+        std::cout << "vector (data) before clear" << std::endl;
+        try {
+            data->clear();
+
+        } catch(const std::runtime_error& re) {
+            std::cerr << "call0: Runtime error: " << re.what() << std::endl;
+        } catch(const std::exception& ex) {
+            std::cerr << "call0: Error occurred: " << ex.what() << std::endl;
+        } catch(...) {
+            std::cerr << "~DataMessages: Unknown failure occurred. Possible memory corruption" << std::endl;
+        }
+        std::cout << "vector (data) is clear" << std::endl;
+        delete data;
 //                    std::cout << "vector deleted" << std::endl;
-                    }
+    }
     std::vector<std::vector<char > > *data;
     size_t getIndexBlockReady();
     long getIndexBlockFilled();
     bool messagesIsFilled();
     bool checkRequest(int16_t numReq, int16_t check_code);
 //    int16_t getCodeQueue();
-    bool getMessageInfo(int16_t &code, int16_t &req);
+    bool getMessageIsEmpty(int16_t &code, int16_t &req);
     bool getMessageReady(int16_t &code, int16_t &req);
     void getIndexOfReqNum(int16_t req, int16_t &index);
     bool setCodeOfReqNum(int16_t req, int16_t code);
 
-    bool changeData(char *ptrData, int16_t req, int16_t code_);
     void addMessage(char *ptrData);
     bool readMessage(char *&ptrData);
+    bool changePointer(int16_t numReq, char **aPointer);
+    bool changeData(char *ptrData, int16_t req, int16_t code_);
+    bool changeApiFunc(int16_t numReq, int16_t numApi);
+    bool changeCode(int16_t numReq, int16_t change_code);
     std::mutex mtx;
 
 public:
@@ -149,9 +172,13 @@ public:
 private:
 };
 
+struct InfoOfWork {
+    long dTime;
+    int16_t req;
+};
+
 class TAbstract
 {
-    std::mutex getMtx;
 public:
     DataMessages *messages;
     bool cycle = true;
@@ -162,8 +189,6 @@ public:
     virtual int readMessage() = 0;
     virtual int worker() = 0;
     virtual ~TAbstract();
-    int createRequest(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
-    int createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
 
 //    size_t getIndexBlockReady();
 //    long getIndexBlockFilled();
@@ -179,13 +204,20 @@ class TServer : public TAbstract
 {
     void (TServer::*api[COUNT_FIELD])(int16_t&, char**);
     std::thread t;
-    std::vector<std::thread> threads;
-    std::vector<std::string*> strings;
+    std::vector<ThreadInfo2*> threads;
+//    std::vector<std::string*> strings;
+    std::condition_variable condVar;
+    bool next = false;
+    size_t thread_count;
 public:
-    int openSession(size_t anNumMessage);
-    void call(int16_t &, char**);
+    int openSession(ThreadInfo2 *infoThr);
+    void call0(int16_t &, char**);
+    void call1(int16_t &, char**);
+    void call2(int16_t &, char**);
+    void call3(int16_t &, char**);
 
     TServer(DataMessages *messages_);
+
     int worker() override;
     int writeMessage() override;
     int readMessage() override;
@@ -196,9 +228,19 @@ public:
 
 class TClient : public TAbstract
 {
+    enum STATE_CLIENT {STATE_START, STATE_WORK, STATE_COMPLATE_LAUNCH,
+                      STATE_COMPLATE_PROC, STATE_COMPLATE_FINISH} state = STATE_START;
+    enum STATE_REQUEST {STATE_REQ_INIT, STATE_REQ_WORK, STATE_REQ_PRINT, STATE_REQ_COMPLATE };
+
+    std::mutex mtxDataOfWork;
+
+    std::map<int16_t, InfoOfWork* > infoOfWork;
     std::map<int16_t, InfoThread* > queueThreads;
     std::thread t;
     bool complate = false;
+    int createRequest(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
+    int createRequestStopServer(InfoThread *infoThr, int16_t aCountArgs, char **appchData);
+    void setSnapShotTime(int16_t numReq, InfoOfWork *iow);
 public:
     TClient(DataMessages *messages_);
     int worker() override;
