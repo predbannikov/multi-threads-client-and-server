@@ -173,7 +173,8 @@ private:
 };
 
 struct InfoOfWork {
-    long dTime;
+    long timePerform;
+    long timeSinceLastTask;
     int16_t req;
 };
 
@@ -233,6 +234,7 @@ class TClient : public TAbstract
     enum STATE_REQUEST {STATE_REQ_INIT, STATE_REQ_WORK, STATE_REQ_PRINT, STATE_REQ_COMPLATE };
 
     std::mutex mtxDataOfWork;
+    long lastTaskComplate;
 
     std::map<int16_t, InfoOfWork* > infoOfWork;
     std::map<int16_t, InfoThread* > queueThreads;

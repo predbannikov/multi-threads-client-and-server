@@ -6,8 +6,8 @@
 #include "sha256.h"
 
 
-#define COUNT_MAX_REQUEST       100
-#define COUNT_MAX_THREADS       32
+#define COUNT_MAX_REQUEST       500
+#define COUNT_MAX_THREADS       16
 
 
 
@@ -194,10 +194,13 @@ int TClient::createRequest(InfoThread *infoThr, int16_t aCountArgs, char **appch
                 break;
             case STATE_REQ_PRINT:
                 iow = new InfoOfWork;
-                iow->dTime = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mark1;
+                iow->timePerform = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - mark1;
+                iow->timeSinceLastTask = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() - lastTaskComplate;
+                lastTaskComplate = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 strRequest = new std::string;
                 strRequest->append("Time=");
-                strRequest->append(std::to_string(iow->dTime));
+                strRequest->append(std::to_string(iow->timePerform));
+                strRequest->append("\tdTask=").append(std::to_string(iow->timeSinceLastTask));
                 strRequest->append("\treq=");
                 strRequest->append(std::to_string(infoThr->numRequest));
                 messages->changeApiFunc(infoThr->numRequest, 2);
@@ -409,7 +412,7 @@ TClient::TClient(DataMessages *messages_) :  TAbstract(messages_) {
     if(!t.joinable())
         throw std::logic_error("No thread");
 
-
+    lastTaskComplate = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 
@@ -439,7 +442,6 @@ int TClient::worker()
                     break;
                 case CODE_MESSAGE_COMPL:
                     messages->clearMessage(req);
-//                    delete queueThreads[req]->threadGuard;
                     delete queueThreads[req];
                     queueThreads.erase(req);
                     break;
